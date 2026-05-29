@@ -46,6 +46,10 @@ const TIMELINE_MOVE_DECEL_RESPONSE = 5.6;
 const POINTER_DRAG_DELAY_MS = 140;
 const POINTER_DRAG_DISTANCE = 8;
 const MAP_CLICK_MOVE_TOLERANCE = 16;
+const MAX_SCENE_PIXEL_RATIO = 1.6;
+const MAX_PACKAGE_PIXEL_RATIO = 1.5;
+const CARD_TEXTURE_BASE_SCALE = 1.25;
+const CARD_TEXTURE_SELECTED_SCALE = 1.45;
 const PACKAGE_TRAY = {
   width: 150,
   depth: 92,
@@ -487,14 +491,20 @@ function getItemAsset(item) {
     || null;
 }
 
+function getAssetPreviewSrc(asset) {
+  return asset?.thumbSrc || asset?.src || null;
+}
+
 function getLoadedAssetImage(asset) {
-  const entry = asset ? assetImageCache.get(asset.src) : null;
+  const src = getAssetPreviewSrc(asset);
+  const entry = src ? assetImageCache.get(src) : null;
   return entry?.status === 'loaded' ? entry.image : null;
 }
 
 function requestAssetImage(asset, onLoad) {
-  if (!asset?.src || typeof Image === 'undefined') return null;
-  const cached = assetImageCache.get(asset.src);
+  const src = getAssetPreviewSrc(asset);
+  if (!src || typeof Image === 'undefined') return null;
+  const cached = assetImageCache.get(src);
   if (cached?.status === 'loaded') return cached.image;
   if (cached?.status === 'loading') {
     if (onLoad) cached.listeners.add(onLoad);
@@ -508,7 +518,7 @@ function requestAssetImage(asset, onLoad) {
     image: null,
     listeners: new Set(onLoad ? [onLoad] : [])
   };
-  assetImageCache.set(asset.src, entry);
+  assetImageCache.set(src, entry);
   image.onload = () => {
     entry.status = 'loaded';
     entry.image = image;
@@ -519,7 +529,9 @@ function requestAssetImage(asset, onLoad) {
     entry.status = 'error';
     entry.listeners.clear();
   };
-  image.src = asset.src;
+  image.decoding = 'async';
+  image.fetchPriority = 'low';
+  image.src = src;
   return null;
 }
 
@@ -957,7 +969,7 @@ function PackageLabViewport({ items, expanded, settings }) {
     camera.lookAt(0, 62, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PACKAGE_PIXEL_RATIO));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
@@ -1751,7 +1763,7 @@ function FocusCard({ item, onPrevious, onNext, onClose }) {
       </button>
       <figure className="focus-card__image panel-preview" data-type={item.type}>
         {asset ? (
-          <img className="focus-card__photo" src={asset.src} alt={asset.title} />
+          <img className="focus-card__photo" src={asset.src} alt={asset.title} loading="lazy" decoding="async" />
         ) : null}
         <span className="focus-card__shade" />
         <span className="focus-card__index">{getFocusCardImageLabel(item, asset)}</span>
@@ -2092,7 +2104,7 @@ function SpaceScene({
     camera.position.set(0, 46, 760);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_SCENE_PIXEL_RATIO));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
@@ -2920,7 +2932,7 @@ function setCardObjectOpacity(card, opacity) {
 
 function makeObjectTexture(item, selected) {
   const type = typeMap[item.type];
-  const textureScale = 3;
+  const textureScale = selected ? CARD_TEXTURE_SELECTED_SCALE : CARD_TEXTURE_BASE_SCALE;
   const logicalWidth = 768;
   const logicalHeight = 1024;
   const canvas = document.createElement('canvas');
@@ -2991,10 +3003,10 @@ function makeObjectTexture(item, selected) {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 16;
+  texture.anisotropy = 2;
   return texture;
 }
 

@@ -1,5 +1,12 @@
 const assetBasePath = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 const fromAssetBase = path => `${assetBasePath}${path}`;
+const toWestLakeThumbSrc = src => src
+  .replace('/assets/westlake/', '/assets/westlake/thumbs/')
+  .replace(/\.(?:png|jpe?g)$/i, '.jpg');
+const withPreviewAsset = asset => ({
+  ...asset,
+  thumbSrc: asset.thumbSrc || toWestLakeThumbSrc(asset.src)
+});
 
 export const westLakeAssets = [
   {
@@ -128,6 +135,6 @@ export const westLakeAssets = [
     src: fromAssetBase('/assets/westlake/full-west-lake-area-map.jpg'),
     note: '西湖地形底图'
   }
-];
+].map(withPreviewAsset);
 
 export const westLakeAssetsById = Object.fromEntries(westLakeAssets.map(asset => [asset.id, asset]));
