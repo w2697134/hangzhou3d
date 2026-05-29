@@ -4243,37 +4243,8 @@ function createMapClusterConnector() {
 }
 
 function updateMapClusterConnector(connector, locationId, clusterItems, pan, zoom, time) {
-  const stop = getMapStopById(locationId);
-  if (!stop || !clusterItems.length) {
-    connector.visible = false;
-    connector.material.opacity = 0;
-    return;
-  }
-
-  const centerItem = clusterItems[Math.floor(clusterItems.length / 2)];
-  const anchor = transformMapPosition(
-    new THREE.Vector3(stop.x, stop.y + XIANGDONG_MAP_BASE_Y, -20),
-    pan,
-    zoom
-  );
-  const cardTarget = getMapCardClusterTarget(centerItem, clusterItems, pan, zoom, time);
-  const directionX = cardTarget.x >= anchor.x ? 1 : -1;
-  const directionY = cardTarget.y >= anchor.y ? 1 : -1;
-  const end = new THREE.Vector3(cardTarget.x - directionX * 64, cardTarget.y - directionY * 32, 42);
-  const elbow = new THREE.Vector3(
-    anchor.x + (end.x - anchor.x) * 0.48,
-    anchor.y + (end.y - anchor.y) * 0.5 + directionY * 18,
-    28
-  );
-
-  connector.geometry.setFromPoints([
-    new THREE.Vector3(anchor.x, anchor.y, 20),
-    elbow,
-    end
-  ]);
-  connector.geometry.computeBoundingSphere();
-  connector.visible = true;
-  connector.material.opacity = 0.32 + Math.sin(time * 3.4) * 0.06;
+  connector.visible = false;
+  connector.material.opacity = 0;
   connector.material.needsUpdate = true;
 }
 
