@@ -135,6 +135,30 @@ export const westLakeAssets = [
     note: '湖滨视角下的西湖与城市边界'
   },
   {
+    id: 'shuangfeng',
+    title: '双峰插云',
+    kind: 'photo',
+    src: fromAssetBase('/assets/westlake/shuangfeng-national-stele.jpg'),
+    sourcePage: 'https://commons.wikimedia.org/wiki/File:%E5%8F%8C%E5%B3%B0%E6%8F%92%E4%BA%91%E5%9B%BD%E4%BF%9D%E7%A2%91.JPG',
+    source: 'Wikimedia Commons',
+    author: 'Nekitarc',
+    license: 'CC BY-SA 4.0',
+    creditShort: 'Nekitarc · CC BY-SA 4.0',
+    note: '双峰插云国保碑，记录南北高峰与云气相接的经典题名'
+  },
+  {
+    id: 'shuangfeng-scroll',
+    title: '叶肖岩两峰插云',
+    kind: 'archive',
+    src: fromAssetBase('/assets/westlake/ye-xiaoyan-twin-peaks.jpg'),
+    sourcePage: 'https://commons.wikimedia.org/wiki/File:%E5%AE%8B_%E8%91%89%E8%82%96%E5%B7%96_%E8%A5%BF%E6%B9%96%E5%8D%81%E6%99%AF%E5%9C%96_%E5%85%A9%E5%B3%B0%E6%8F%92%E9%9B%B2.jpg',
+    source: 'Wikimedia Commons / National Palace Museum',
+    author: 'Ye Xiaoyan',
+    license: 'Public domain',
+    creditShort: 'Ye Xiaoyan · Public domain',
+    note: '宋代西湖十景图中的两峰插云图像，可用于对比历史画意与今日景点'
+  },
+  {
     id: 'historic-map-1916',
     title: '1916 西湖最新地图',
     kind: 'map',

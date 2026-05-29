@@ -78,7 +78,7 @@ const types = [
 ];
 
 const typeMap = Object.fromEntries(types.map(type => [type.id, type]));
-const showcaseAssetIds = ['terrain-west-lake', 'duanqiao', 'sudi', 'santan', 'leifeng', 'historic-map-1916'];
+const showcaseAssetIds = ['terrain-west-lake', 'duanqiao', 'sudi', 'santan', 'leifeng', 'shuangfeng', 'shuangfeng-scroll', 'historic-map-1916'];
 const assetImageCache = new Map();
 
 const XIANGDONG_MAP_SIZE = { width: 2400, height: 1440 };
@@ -91,7 +91,7 @@ const XIANGDONG_MAP_PAN_MARGIN = 18;
 const XIANGDONG_GEO_BOUNDS = {
   minLat: 30.224,
   maxLat: 30.266,
-  minLon: 120.126,
+  minLon: 120.116,
   maxLon: 120.169
 };
 
@@ -100,6 +100,7 @@ const xiangdongRouteGeoStops = [
   { id: 'baidi', label: '白堤', meta: '湖上长堤', lat: 30.2573, lon: 120.1482 },
   { id: 'pinghu', label: '平湖秋月', meta: '北里湖畔', lat: 30.2552, lon: 120.1451 },
   { id: 'quyuan', label: '曲院风荷', meta: '荷风酒香', lat: 30.2514, lon: 120.1352 },
+  { id: 'shuangfeng', label: '双峰插云', meta: '南北高峰', lat: 30.2499, lon: 120.1181 },
   { id: 'sudi', label: '苏堤春晓', meta: '南北长堤', lat: 30.2424, lon: 120.1395 },
   { id: 'huagang', label: '花港观鱼', meta: '花港园林', lat: 30.2309, lon: 120.1391 },
   { id: 'santan', label: '三潭印月', meta: '湖中三塔', lat: 30.2351, lon: 120.1495 },
@@ -133,6 +134,7 @@ const exhibitSeeds = [
   { title: '白堤漫步', type: 'map', year: 822, locationId: 'baidi', author: '白居易线索', material: '堤岸路线', description: '白堤把孤山与湖滨连成一条开阔步行线，适合用来理解西湖北岸的空间秩序。', tags: ['白堤', '唐代', '路线'] },
   { title: '平湖秋月', type: 'image', year: 1699, locationId: 'pinghu', author: '西湖十景', material: '观景平台', description: '平湖秋月强调静水、远山和月色的关系，是西湖“借景入画”的代表场景。', tags: ['十景', '月色', '孤山'] },
   { title: '曲院风荷', type: 'image', year: 1699, locationId: 'quyuan', author: '西湖十景', material: '荷塘园景', description: '曲院风荷以夏日荷香和水岸曲折见长，适合串联植物、园林和湖面视线。', tags: ['十景', '荷花', '夏景'] },
+  { title: '双峰插云', type: 'image', year: 1699, locationId: 'shuangfeng', author: '西湖十景', material: '山色云气', description: '双峰插云把南高峰、北高峰和雨后云雾放在同一条视线里，重点不是单个亭碑，而是西湖西侧群山的天际线。', tags: ['十景', '南北高峰', '云气'] },
   { title: '苏堤春晓', type: 'map', year: 1089, locationId: 'sudi', author: '苏轼线索', material: '湖上长堤', description: '苏堤由疏浚西湖而来，南北贯穿湖面，六桥与春柳共同塑造了经典漫游节奏。', tags: ['苏堤', '宋代', '春景'] },
   { title: '花港观鱼', type: 'image', year: 1699, locationId: 'huagang', author: '西湖十景', material: '园林水池', description: '花港观鱼把花木、池水和游鱼组合成近距离观看的园林场景。', tags: ['十景', '园林', '游鱼'] },
   { title: '三潭印月', type: 'object', year: 1089, locationId: 'santan', author: '苏轼线索', material: '湖中石塔', description: '三座石塔立在小瀛洲南侧水面，月夜灯影让湖面形成“水中有月”的想象。', tags: ['三潭', '小瀛洲', '月景'] },
@@ -155,6 +157,7 @@ const exhibitSeeds = [
   { title: '西湖申遗', type: 'document', year: 2011, locationId: 'hubin', author: '世界遗产线索', material: '遗产文本', description: '2011 年西湖文化景观列入世界遗产，核心价值在于湖山、堤岛、寺塔和诗性观景的整体关系。', tags: ['世界遗产', '保护', '当代'] },
   { title: '花港牡丹亭', type: 'image', year: 1952, locationId: 'huagang', author: '园林更新线索', material: '园林建筑', description: '花港一带的亭、廊、池让游览从湖面大景转向近身园林体验。', tags: ['花港观鱼', '亭廊', '园林'] },
   { title: '曲院荷风水面', type: 'video', year: 1983, locationId: 'quyuan', author: '景区更新线索', material: '荷塘影像', description: '荷塘随季节改变，是最适合用动态影像表现的西湖场景之一。', tags: ['曲院风荷', '荷塘', '季节'] },
+  { title: '两峰插云图像', type: 'document', year: 1221, locationId: 'shuangfeng', author: '叶肖岩线索', material: '宋代画意', description: '叶肖岩《西湖十景图》里的两峰插云把山峰藏进云气之中，可用来解释“看不完整反而更有想象”的古典观景方式。', tags: ['双峰插云', '宋画', '十景'] },
   { title: '雷峰塔与白蛇传', type: 'document', year: 1924, locationId: 'leifeng', author: '近代记忆线索', material: '传说与遗址', description: '雷峰塔倒塌后仍在文学和民间故事里持续存在，说明景点的意义不只来自建筑实体。', tags: ['雷峰塔', '白蛇传', '记忆'] },
   { title: '南线夜游', type: 'video', year: 2024, locationId: 'nanping', author: '当代游线', material: '夜景影像', description: '南线夜游把雷峰塔、净慈寺和湖面灯影组织起来，适合作为一天游程的收束。', tags: ['夜游', '南线', '路线'] },
   { title: '湖滨步行街', type: 'map', year: 2020, locationId: 'hubin', author: '城市更新线索', material: '公共空间', description: '湖滨步行街让游客从城市街区自然进入湖岸，也让西湖成为杭州日常生活的一部分。', tags: ['湖滨', '步行街', '当代'] },
@@ -210,6 +213,7 @@ const READABLE_MAP_LABELS = {
   baidi: '白堤',
   pinghu: '平湖秋月',
   quyuan: '曲院风荷',
+  shuangfeng: '双峰插云',
   sudi: '苏堤春晓',
   huagang: '花港观鱼',
   santan: '三潭印月',
@@ -462,6 +466,7 @@ function getReadableLocationName(location) {
 
 function getDefaultSeedAssetId(seed) {
   const title = seed.title || '';
+  if (title.includes('两峰插云图像')) return 'shuangfeng-scroll';
   if (title.includes('总览') || title.includes('申遗')) return 'terrain-west-lake';
   if (title.includes('测绘') || title.includes('水院') || title.includes('白居易')) return 'historic-map-1916';
   if (title.includes('西泠') || title.includes('远眺') || title.includes('苏轼') || title.includes('白蛇传') || title.includes('湖心亭')) return 'westlake-scroll';
@@ -1729,24 +1734,58 @@ function LayoutDock({ activeLayout, onLayoutChange, compact = false }) {
 }
 
 function AssetLibraryPanel() {
+  const [isExpanded, setIsExpanded] = useState(false);
   const showcaseAssets = showcaseAssetIds
     .map(id => westLakeAssetsById[id])
     .filter(Boolean);
+  const visibleAssets = isExpanded ? westLakeAssets : showcaseAssets;
 
   return (
     <section
-      className="asset-library"
+      className={`asset-library ${isExpanded ? 'asset-library--expanded' : ''}`}
       aria-label="西湖公开素材库"
       onPointerDown={event => event.stopPropagation()}
       onPointerUp={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
     >
       <div className="asset-library__head">
-        <span>公开素材库</span>
-        <strong>{westLakeAssets.length} 项</strong>
+        <div>
+          <span>公开素材库</span>
+          <strong>{westLakeAssets.length} 项公开素材</strong>
+        </div>
+        <button
+          type="button"
+          className="asset-library__toggle"
+          onClick={() => setIsExpanded(value => !value)}
+          aria-expanded={isExpanded}
+        >
+          {isExpanded ? '收起' : '展开'}
+        </button>
       </div>
+      {isExpanded ? (
+        <div className="asset-library__records">
+          {westLakeAssets.map(asset => (
+            <a
+              className="asset-library__record"
+              key={asset.id}
+              href={asset.sourcePage}
+              target="_blank"
+              rel="noreferrer"
+              title={`${asset.title} · ${asset.creditShort}`}
+            >
+              <img src={asset.src} alt={asset.title} />
+              <span>
+                <strong>{asset.title}</strong>
+                <small>{asset.kind} · {asset.license}</small>
+                <em>{asset.note}</em>
+              </span>
+              <ArrowUpRight size={15} />
+            </a>
+          ))}
+        </div>
+      ) : null}
       <div className="asset-library__strip">
-        {showcaseAssets.map(asset => (
+        {visibleAssets.map(asset => (
           <a key={asset.id} href={asset.sourcePage} target="_blank" rel="noreferrer" title={`${asset.title} · ${asset.creditShort}`}>
             <img src={asset.src} alt={asset.title} />
           </a>
@@ -5278,7 +5317,7 @@ function markMapLocationTarget(object, stop) {
 function createXiangdongMapMarker(color) {
   const group = new THREE.Group();
   const hitArea = new THREE.Mesh(
-    new THREE.CircleGeometry(34, 40),
+    new THREE.CircleGeometry(52, 48),
     new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,

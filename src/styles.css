@@ -787,7 +787,7 @@ button {
   z-index: 12;
   left: 424px;
   bottom: 24px;
-  width: min(376px, calc(100vw - 560px));
+  width: min(520px, calc(100vw - 560px));
   min-width: 300px;
   padding: 10px 12px 12px;
   border: 1px solid rgba(255,255,255,.12);
@@ -795,6 +795,11 @@ button {
   background: rgba(5, 12, 12, .58);
   box-shadow: 0 22px 70px rgba(0,0,0,.24);
   backdrop-filter: blur(18px);
+}
+
+.asset-library--expanded {
+  width: min(760px, calc(100vw - 540px));
+  background: rgba(5, 12, 12, .72);
 }
 
 .asset-library__head {
@@ -807,14 +812,100 @@ button {
   font-size: 12px;
 }
 
+.asset-library__head div {
+  display: grid;
+  gap: 2px;
+}
+
 .asset-library__head strong {
   color: #e9f8ef;
   font-weight: 720;
 }
 
+.asset-library__toggle {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(73, 214, 200, .24);
+  border-radius: 8px;
+  color: #9ff7e8;
+  background: rgba(73, 214, 200, .09);
+  cursor: pointer;
+}
+
+.asset-library__toggle:hover {
+  border-color: rgba(73, 214, 200, .56);
+}
+
+.asset-library__records {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: min(330px, calc(100vh - 270px));
+  margin-bottom: 10px;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.asset-library__record {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr) 18px;
+  gap: 10px;
+  align-items: center;
+  min-height: 74px;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  color: rgba(231, 246, 239, .84);
+  background: rgba(255,255,255,.045);
+  text-decoration: none;
+}
+
+.asset-library__record:hover {
+  border-color: rgba(73, 214, 200, .54);
+  background: rgba(73, 214, 200, .08);
+}
+
+.asset-library__record img {
+  width: 66px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: rgba(255,255,255,.05);
+}
+
+.asset-library__record span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.asset-library__record strong,
+.asset-library__record small,
+.asset-library__record em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-library__record strong {
+  color: #f2fff6;
+  font-size: 13px;
+}
+
+.asset-library__record small {
+  color: rgba(165, 225, 203, .7);
+  font-size: 11px;
+}
+
+.asset-library__record em {
+  color: rgba(226, 237, 232, .58);
+  font-size: 11px;
+  font-style: normal;
+}
+
 .asset-library__strip {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 7px;
 }
 
