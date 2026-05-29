@@ -50,6 +50,9 @@ const MAX_SCENE_PIXEL_RATIO = 1.6;
 const MAX_PACKAGE_PIXEL_RATIO = 1.5;
 const CARD_TEXTURE_BASE_SCALE = 1.25;
 const CARD_TEXTURE_SELECTED_SCALE = 1.45;
+const TIMELINE_HOLDER_ACTIVE_CREATE_BATCH = 1;
+const TIMELINE_HOLDER_WARMUP_BATCH = 1;
+const TIMELINE_HOLDER_WARMUP_TIMEOUT_MS = 60;
 const PACKAGE_TRAY = {
   width: 150,
   depth: 92,
@@ -83,6 +86,20 @@ const types = [
 
 const typeMap = Object.fromEntries(types.map(type => [type.id, type]));
 const assetImageCache = new Map();
+const sharedTextureCache = new Map();
+const timelineGroupsCache = new WeakMap();
+const timelineMetaCache = new WeakMap();
+const MATERIAL_TEXTURE_KEYS = ['map', 'alphaMap', 'aoMap', 'bumpMap', 'displacementMap', 'emissiveMap', 'envMap', 'lightMap', 'metalnessMap', 'normalMap', 'roughnessMap'];
+
+function getSharedTexture(key, createTexture) {
+  let texture = sharedTextureCache.get(key);
+  if (!texture) {
+    texture = createTexture();
+    texture.userData.shared = true;
+    sharedTextureCache.set(key, texture);
+  }
+  return texture;
+}
 
 const XIANGDONG_MAP_SIZE = { width: 1800, height: 1990 };
 const XIANGDONG_MAP_BASE_Y = 34;
@@ -1170,20 +1187,26 @@ function createPackageBoxPart(width, height, depth, color, opacity, edgeOpacity 
 }
 
 function createPackageGlowTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  const gradient = ctx.createRadialGradient(128, 128, 12, 128, 128, 126);
-  gradient.addColorStop(0, 'rgba(40,244,255,.95)');
-  gradient.addColorStop(0.3, 'rgba(40,244,255,.38)');
-  gradient.addColorStop(0.66, 'rgba(40,244,255,.12)');
-  gradient.addColorStop(1, 'rgba(40,244,255,0)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  return getSharedTexture('package-glow', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 192;
+    canvas.height = 192;
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createRadialGradient(96, 96, 8, 96, 96, 94);
+    gradient.addColorStop(0, 'rgba(40,244,255,.95)');
+    gradient.addColorStop(0.3, 'rgba(40,244,255,.38)');
+    gradient.addColorStop(0.66, 'rgba(40,244,255,.12)');
+    gradient.addColorStop(1, 'rgba(40,244,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = 1;
+    return texture;
+  });
 }
 
 function createPackageFloorGlowObject({ namePrefix = 'package', width = 460, depth = 144, opacity = 0.28 } = {}) {
@@ -2174,6 +2197,11 @@ function SpaceScene({
       layoutTransition: null,
       layoutTransitionDone: false,
       relayoutPulse: 0,
+      timelineWarmupStartedAt: performance.now(),
+      timelineWarmupCompiled: false,
+      timelineWarmupCompileQueued: false,
+      timelineGuideTexturesWarmed: false,
+      disposed: false,
       cameraLookAt: new THREE.Vector3(0, 10, 0),
       frame: 0
     };
@@ -2210,15 +2238,17 @@ function SpaceScene({
       });
     }
 
-    function updateTimelineHolders(active, layoutItems, introMix = 1) {
-      if (active !== 'timeline') {
-        timelineHolders.forEach(holder => {
-          holder.visible = false;
-        });
-        return;
-      }
+    function createTimelineHolderForGroup(group, expanded, visible) {
+      const holder = createTimelineHolderObject(group, expanded);
+      holder.position.copy(getTimelineVisualModel(group, latest.current.timelineGroupId).target);
+      holder.visible = visible;
+      root.add(holder);
+      timelineHolders.set(group.id, holder);
+      warmObjectTextures(holder);
+      return holder;
+    }
 
-      const groups = getTimelineGroups(layoutItems);
+    function pruneTimelineHolders(groups) {
       const visibleGroups = new Set(groups.map(group => group.id));
       [...timelineHolders.entries()].forEach(([id, holder]) => {
         if (!visibleGroups.has(id)) {
@@ -2227,21 +2257,125 @@ function SpaceScene({
           timelineHolders.delete(id);
         }
       });
+    }
 
+    function warmTimelineHolders(layoutItems) {
+      if (!state.timelineGuideTexturesWarmed) {
+        warmObjectTextures(timelineGuide);
+        state.timelineGuideTexturesWarmed = true;
+      }
+      const groups = getTimelineGroups(layoutItems);
+      pruneTimelineHolders(groups);
+      let created = 0;
+      for (const group of groups) {
+        if (timelineHolders.has(group.id)) continue;
+        createTimelineHolderForGroup(group, false, false);
+        created += 1;
+        if (created >= TIMELINE_HOLDER_WARMUP_BATCH) break;
+      }
+      if (groups.length && groups.every(group => timelineHolders.has(group.id))) {
+        precompileTimelineLayout();
+      }
+    }
+
+    function precompileTimelineLayout() {
+      if (state.timelineWarmupCompiled || state.timelineWarmupCompileQueued || state.disposed) return;
+      state.timelineWarmupCompileQueued = true;
+      const compile = () => {
+        if (state.disposed || state.timelineWarmupCompiled) return;
+        const timelineGuideVisible = timelineGuide.visible;
+        const holderVisibility = new Map();
+        timelineHolders.forEach((holder, id) => {
+          holderVisibility.set(id, holder.visible);
+          holder.visible = true;
+        });
+        timelineGuide.visible = true;
+        warmObjectTextures(timelineGuide);
+        timelineHolders.forEach(holder => warmObjectTextures(holder));
+        const cameraPosition = camera.position.clone();
+        const cameraQuaternion = camera.quaternion.clone();
+        const cameraFov = camera.fov;
+        const cameraLookAt = state.cameraLookAt.clone();
+        let warmupTarget = null;
+        const previousRenderTarget = renderer.getRenderTarget();
+        try {
+          const timelineCamera = getTimelineCameraState(state.timelineFlow, state.timelineOrbit, state.timelineHeight);
+          camera.fov = 66;
+          camera.position.copy(timelineCamera.position);
+          camera.lookAt(timelineCamera.lookAt);
+          camera.updateProjectionMatrix();
+          camera.updateMatrixWorld(true);
+          renderer.compile(scene, camera);
+          warmupTarget = new THREE.WebGLRenderTarget(1, 1, {
+            depthBuffer: true,
+            stencilBuffer: false
+          });
+          renderer.setRenderTarget(warmupTarget);
+          renderer.render(scene, camera);
+          state.timelineWarmupCompiled = true;
+        } finally {
+          renderer.setRenderTarget(previousRenderTarget);
+          warmupTarget?.dispose();
+          camera.fov = cameraFov;
+          camera.position.copy(cameraPosition);
+          camera.quaternion.copy(cameraQuaternion);
+          state.cameraLookAt.copy(cameraLookAt);
+          camera.updateProjectionMatrix();
+          camera.updateMatrixWorld(true);
+          timelineGuide.visible = timelineGuideVisible;
+          timelineHolders.forEach((holder, id) => {
+            holder.visible = holderVisibility.get(id) ?? false;
+          });
+        }
+      };
+
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(compile, { timeout: 900 });
+      } else {
+        window.setTimeout(compile, 180);
+      }
+    }
+
+    function warmObjectTextures(object) {
+      if (typeof renderer.initTexture !== 'function') return;
+      getObjectMaterials(object).forEach(material => {
+        MATERIAL_TEXTURE_KEYS.forEach(key => {
+          const texture = material[key];
+          if (!texture || texture.userData.uploadWarmed) return;
+          renderer.initTexture(texture);
+          texture.userData.uploadWarmed = true;
+        });
+      });
+    }
+
+    function updateTimelineHolders(active, layoutItems, introMix = 1) {
+      if (active !== 'timeline') {
+        timelineHolders.forEach(holder => {
+          holder.visible = false;
+        });
+        if (performance.now() - state.timelineWarmupStartedAt > TIMELINE_HOLDER_WARMUP_TIMEOUT_MS) {
+          warmTimelineHolders(layoutItems);
+        }
+        return;
+      }
+
+      const groups = getTimelineGroups(layoutItems);
+      pruneTimelineHolders(groups);
+      let createdThisFrame = 0;
       groups.forEach(group => {
         let holder = timelineHolders.get(group.id);
         const expanded = latest.current.timelineGroupId === group.id;
         if (!holder) {
-          holder = createTimelineHolderObject(group, expanded);
-          holder.position.copy(getTimelineVisualModel(group, latest.current.timelineGroupId).target);
-          root.add(holder);
-          timelineHolders.set(group.id, holder);
+          if (createdThisFrame >= TIMELINE_HOLDER_ACTIVE_CREATE_BATCH) return;
+          holder = createTimelineHolderForGroup(group, expanded, false);
+          createdThisFrame += 1;
         }
 
         const textureKey = `${group.id}-${expanded}`;
         if (holder.userData.textureKey !== textureKey) {
           updateTimelineHolderObject(holder, group, expanded);
           holder.userData.textureKey = textureKey;
+          warmObjectTextures(holder);
         }
 
         const visual = getTimelineVisualModel(group, latest.current.timelineGroupId);
@@ -2273,7 +2407,7 @@ function SpaceScene({
           from: previousLayout,
           to: active,
           elapsed: 0,
-          duration: LAYOUT_TRANSITION_DURATION,
+          duration: active === 'timeline' ? 0.95 : LAYOUT_TRANSITION_DURATION,
           cardStarts: new Map([...cards.entries()].map(([id, mesh]) => [id, mesh.position.clone()])),
           cameraStart: camera.position.clone(),
           lookAtStart: state.cameraLookAt.clone()
@@ -2806,6 +2940,7 @@ function SpaceScene({
     animate();
 
     return () => {
+      state.disposed = true;
       cancelAnimationFrame(state.frame);
       window.removeEventListener('resize', resize);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
@@ -2915,19 +3050,27 @@ function requestCardAssetRefresh(card, item, selected) {
 }
 
 function setCardObjectDepthTest(card, depthTest) {
-  card.traverse(child => {
-    if (!child.material) return;
-    child.material.depthTest = depthTest;
-    child.material.needsUpdate = true;
+  if (card.userData.depthTest === depthTest) return;
+  card.userData.depthTest = depthTest;
+  getObjectMaterials(card).forEach(material => {
+    if (material.depthTest === depthTest) return;
+    material.depthTest = depthTest;
+    material.needsUpdate = true;
   });
 }
 
 function setCardObjectOpacity(card, opacity) {
-  card.traverse(child => {
-    if (!child.material) return;
-    child.material.opacity = (child.material.userData.baseOpacity ?? child.material.opacity) * opacity;
-    child.material.needsUpdate = true;
+  const clamped = THREE.MathUtils.clamp(opacity, 0, 1);
+  if (Math.abs((card.userData.appliedOpacity ?? -1) - clamped) < 0.002) return;
+  card.userData.appliedOpacity = clamped;
+  getObjectMaterials(card).forEach(material => {
+    material.opacity = (material.userData.baseOpacity ?? material.opacity) * clamped;
   });
+}
+
+function resetObjectMaterialCache(object) {
+  object.userData.materialEntries = null;
+  object.userData.materials = null;
 }
 
 function makeObjectTexture(item, selected) {
@@ -3023,6 +3166,8 @@ function populateTimelineHolderObject(holder, group, expanded) {
     const child = holder.children.pop();
     disposeThreeObject(child);
   }
+  resetObjectMaterialCache(holder);
+  holder.userData.appliedOpacity = null;
 
   const trayY = expanded ? -38 : -6;
   const trayScale = expanded ? 0.75 : 0.58;
@@ -3415,122 +3560,128 @@ function createTimelineTrayLightObject(expanded, trayY, trayScale) {
 }
 
 function makeTimelineEmitterTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 192;
-  const ctx = canvas.getContext('2d');
+  return getSharedTexture('timeline-emitter', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.save();
-  ctx.translate(256, 96);
-  ctx.scale(2.05, 0.68);
-  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 118);
-  glow.addColorStop(0, 'rgba(238,255,255,.68)');
-  glow.addColorStop(0.22, 'rgba(94,252,255,.48)');
-  glow.addColorStop(0.52, 'rgba(40,244,255,.24)');
-  glow.addColorStop(0.78, 'rgba(40,244,255,.085)');
-  glow.addColorStop(1, 'rgba(40,244,255,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(-260, -160, 520, 320);
-  ctx.restore();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(128, 48);
+    ctx.scale(2.05, 0.68);
+    const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 58);
+    glow.addColorStop(0, 'rgba(238,255,255,.68)');
+    glow.addColorStop(0.22, 'rgba(94,252,255,.48)');
+    glow.addColorStop(0.52, 'rgba(40,244,255,.24)');
+    glow.addColorStop(0.78, 'rgba(40,244,255,.085)');
+    glow.addColorStop(1, 'rgba(40,244,255,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(-130, -80, 260, 160);
+    ctx.restore();
 
-  ctx.save();
-  ctx.translate(256, 96);
-  ctx.scale(1.3, 0.34);
-  const core = ctx.createRadialGradient(0, 0, 2, 0, 0, 72);
-  core.addColorStop(0, 'rgba(252,255,255,.58)');
-  core.addColorStop(0.4, 'rgba(112,254,255,.34)');
-  core.addColorStop(0.82, 'rgba(40,244,255,.09)');
-  core.addColorStop(1, 'rgba(40,244,255,0)');
-  ctx.fillStyle = core;
-  ctx.fillRect(-160, -100, 320, 200);
-  ctx.restore();
+    ctx.save();
+    ctx.translate(128, 48);
+    ctx.scale(1.3, 0.34);
+    const core = ctx.createRadialGradient(0, 0, 1, 0, 0, 36);
+    core.addColorStop(0, 'rgba(252,255,255,.58)');
+    core.addColorStop(0.4, 'rgba(112,254,255,.34)');
+    core.addColorStop(0.82, 'rgba(40,244,255,.09)');
+    core.addColorStop(1, 'rgba(40,244,255,0)');
+    ctx.fillStyle = core;
+    ctx.fillRect(-80, -50, 160, 100);
+    ctx.restore();
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 8;
-  return texture;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = 2;
+    return texture;
+  });
 }
 
 function makeTimelineSeatMaskTexture(accent, expanded, showStroke = true) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  const shade = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  if (showStroke) {
-    shade.addColorStop(0, 'rgba(1,4,9,0)');
-    shade.addColorStop(0.28, rgba(accent, expanded ? 0.18 : 0.24));
-    shade.addColorStop(0.58, 'rgba(2,8,14,.62)');
-    shade.addColorStop(1, 'rgba(0,0,0,.86)');
-  } else {
-    shade.addColorStop(0, 'rgba(1,4,9,0)');
-    shade.addColorStop(0.24, rgba(accent, expanded ? 0.38 : 0.32));
-    shade.addColorStop(0.58, rgba(accent, expanded ? 0.22 : 0.18));
-    shade.addColorStop(1, 'rgba(1,12,18,.18)');
-  }
-  ctx.fillStyle = shade;
-  round(ctx, 6, 4, canvas.width - 12, canvas.height - 8, 24);
-  ctx.fill();
+  return getSharedTexture(`timeline-seat-mask-${accent}-${expanded}-${showStroke}`, () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 384;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    const shade = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    if (showStroke) {
+      shade.addColorStop(0, 'rgba(1,4,9,0)');
+      shade.addColorStop(0.28, rgba(accent, expanded ? 0.18 : 0.24));
+      shade.addColorStop(0.58, 'rgba(2,8,14,.62)');
+      shade.addColorStop(1, 'rgba(0,0,0,.86)');
+    } else {
+      shade.addColorStop(0, 'rgba(1,4,9,0)');
+      shade.addColorStop(0.24, rgba(accent, expanded ? 0.38 : 0.32));
+      shade.addColorStop(0.58, rgba(accent, expanded ? 0.22 : 0.18));
+      shade.addColorStop(1, 'rgba(1,12,18,.18)');
+    }
+    ctx.fillStyle = shade;
+    round(ctx, 5, 3, canvas.width - 10, canvas.height - 6, 18);
+    ctx.fill();
 
-  if (showStroke) {
-    ctx.shadowColor = rgba(accent, 0.62);
-    ctx.shadowBlur = 18;
-    ctx.strokeStyle = rgba(accent, expanded ? 0.78 : 0.9);
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.moveTo(36, 74);
-    ctx.lineTo(canvas.width - 36, 74);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
+    if (showStroke) {
+      ctx.shadowColor = rgba(accent, 0.62);
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = rgba(accent, expanded ? 0.78 : 0.9);
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(27, 56);
+      ctx.lineTo(canvas.width - 27, 56);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 8;
-  return texture;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = 2;
+    return texture;
+  });
 }
 
 function makePackageFrontGuardTexture(accent) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  const glass = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  glass.addColorStop(0, rgba(accent, 0.2));
-  glass.addColorStop(0.42, 'rgba(3,12,18,.64)');
-  glass.addColorStop(1, 'rgba(0,0,0,.84)');
-  ctx.fillStyle = glass;
-  round(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 24);
-  ctx.fill();
+  return getSharedTexture(`package-front-guard-${accent}`, () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 384;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    const glass = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    glass.addColorStop(0, rgba(accent, 0.2));
+    glass.addColorStop(0.42, 'rgba(3,12,18,.64)');
+    glass.addColorStop(1, 'rgba(0,0,0,.84)');
+    ctx.fillStyle = glass;
+    round(ctx, 6, 6, canvas.width - 12, canvas.height - 12, 18);
+    ctx.fill();
 
-  ctx.strokeStyle = rgba(accent, 0.66);
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.moveTo(42, 34);
-  ctx.lineTo(canvas.width - 42, 34);
-  ctx.stroke();
+    ctx.strokeStyle = rgba(accent, 0.66);
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(32, 26);
+    ctx.lineTo(canvas.width - 32, 26);
+    ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(245,251,255,.18)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(54, 52);
-  ctx.lineTo(canvas.width - 54, 52);
-  ctx.stroke();
+    ctx.strokeStyle = 'rgba(245,251,255,.18)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(40, 39);
+    ctx.lineTo(canvas.width - 40, 39);
+    ctx.stroke();
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 8;
-  return texture;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = 2;
+    return texture;
+  });
 }
 
 function makeRoundedRectGeometry(width, height, radius) {
@@ -3552,23 +3703,23 @@ function makeRoundedRectGeometry(width, height, radius) {
 
 function makeTimelineLabelTexture(group, expanded) {
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 180;
+  canvas.width = 256;
+  canvas.height = 96;
   const ctx = canvas.getContext('2d');
   ctx.shadowColor = 'rgba(40,244,255,.52)';
-  ctx.shadowBlur = expanded ? 20 : 16;
-  ctx.shadowOffsetY = 3;
+  ctx.shadowBlur = expanded ? 12 : 10;
+  ctx.shadowOffsetY = 2;
   ctx.fillStyle = 'rgba(245,251,255,.96)';
-  ctx.font = `${expanded ? 124 : 112}px "Segoe UI", Arial, sans-serif`;
+  ctx.font = `${expanded ? 66 : 60}px "Segoe UI", Arial, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(group.label, canvas.width / 2, canvas.height / 2 + 4);
+  ctx.fillText(group.label, canvas.width / 2, canvas.height / 2 + 2);
   const yearOnlyTexture = new THREE.CanvasTexture(canvas);
   yearOnlyTexture.colorSpace = THREE.SRGBColorSpace;
-  yearOnlyTexture.generateMipmaps = true;
-  yearOnlyTexture.minFilter = THREE.LinearMipmapLinearFilter;
+  yearOnlyTexture.generateMipmaps = false;
+  yearOnlyTexture.minFilter = THREE.LinearFilter;
   yearOnlyTexture.magFilter = THREE.LinearFilter;
-  yearOnlyTexture.anisotropy = 8;
+  yearOnlyTexture.anisotropy = 2;
   return yearOnlyTexture;
   ctx.fillStyle = expanded ? 'rgba(40,244,255,.86)' : 'rgba(245,251,255,.72)';
   ctx.font = '40px "Microsoft YaHei", Arial, sans-serif';
@@ -3583,10 +3734,11 @@ function makeTimelineLabelTexture(group, expanded) {
 }
 
 function setTimelineHolderOpacity(holder, opacity) {
-  holder.traverse(child => {
-    if (!child.material) return;
-    child.material.opacity = (child.material.userData.baseOpacity ?? child.material.opacity) * opacity;
-    child.material.needsUpdate = true;
+  const clamped = THREE.MathUtils.clamp(opacity, 0, 1);
+  if (Math.abs((holder.userData.appliedOpacity ?? -1) - clamped) < 0.002) return;
+  holder.userData.appliedOpacity = clamped;
+  getObjectMaterials(holder).forEach(material => {
+    material.opacity = (material.userData.baseOpacity ?? material.opacity) * clamped;
   });
 }
 
@@ -3602,21 +3754,16 @@ function updateTimelineHolderGlowPulse(holder, group, expanded, holderOpacity, t
   const socketPulse = expanded ? 0.82 + wave * 0.12 + snap * 0.08 : 0.86 + wave * 0.13 + snap * 0.09;
   const innerPulse = expanded ? 0.92 + wave * 0.1 + snap * 0.06 : 0.94 + wave * 0.09 + snap * 0.06;
 
-  holder.traverse(child => {
-    if (!child.material) return;
-    const baseOpacity = child.material.userData.baseOpacity ?? child.material.opacity;
+  getObjectMaterialEntries(holder).forEach(({ object: child, material }) => {
+    const baseOpacity = material.userData.baseOpacity ?? material.opacity;
     if (child.name === 'timeline-package-tray-glow') {
-      child.material.opacity = baseOpacity * holderOpacity * slotPulse;
-      child.material.needsUpdate = true;
+      material.opacity = baseOpacity * holderOpacity * slotPulse;
     } else if (child.name === 'timeline-package-hover-glow') {
-      child.material.opacity = baseOpacity * holderOpacity * cardPulse;
-      child.material.needsUpdate = true;
+      material.opacity = baseOpacity * holderOpacity * cardPulse;
     } else if (child.name === 'timeline-card-slot-glow' || child.name === 'timeline-card-socket-line') {
-      child.material.opacity = baseOpacity * holderOpacity * socketPulse;
-      child.material.needsUpdate = true;
+      material.opacity = baseOpacity * holderOpacity * socketPulse;
     } else if (child.name.startsWith('timeline-inner-light')) {
-      child.material.opacity = baseOpacity * holderOpacity * innerPulse;
-      child.material.needsUpdate = true;
+      material.opacity = baseOpacity * holderOpacity * innerPulse;
     }
   });
 }
@@ -3665,11 +3812,11 @@ function disposeThreeObject(object) {
     child.geometry?.dispose?.();
     if (Array.isArray(child.material)) {
       child.material.forEach(material => {
-        material.map?.dispose?.();
+        if (material.map && !material.map.userData?.shared) material.map.dispose();
         material.dispose?.();
       });
     } else {
-      child.material?.map?.dispose?.();
+      if (child.material?.map && !child.material.map.userData?.shared) child.material.map.dispose();
       child.material?.dispose?.();
     }
   });
@@ -3777,6 +3924,7 @@ function getLayoutTarget(item, layoutItems, activeLayout, time, focusBlend = 0, 
 function getLayoutTransitionMix(transition) {
   if (!transition) return 1;
   const t = THREE.MathUtils.clamp(transition.elapsed / Math.max(0.001, transition.duration), 0, 1);
+  if (transition.to === 'timeline') return 1 - Math.pow(1 - t, 3);
   return t * t * (3 - 2 * t);
 }
 
@@ -3789,27 +3937,56 @@ function getLayoutGuideOpacity(layout, activeLayout, transition, transitionMix) 
 
 function setParticleFieldOpacity(field, opacity) {
   const clamped = THREE.MathUtils.clamp(opacity, 0, 1);
+  if (Math.abs((field.userData.appliedOpacity ?? -1) - clamped) < 0.002) {
+    field.visible = clamped > 0.01;
+    return;
+  }
+  field.userData.appliedOpacity = clamped;
   field.visible = clamped > 0.01;
   if (field.material) {
     field.material.userData.baseOpacity ??= field.material.opacity ?? 1;
     field.material.opacity = field.material.userData.baseOpacity * clamped;
-    field.material.needsUpdate = true;
   }
 }
 
 function setGuideOpacity(guide, opacity) {
   const clamped = THREE.MathUtils.clamp(opacity, 0, 1);
+  if (Math.abs((guide.userData.appliedOpacity ?? -1) - clamped) < 0.002) {
+    guide.visible = clamped > 0.01;
+    return;
+  }
+  guide.userData.appliedOpacity = clamped;
   guide.visible = clamped > 0.01;
-  guide.traverse(child => {
+  getObjectMaterials(guide).forEach(material => {
+    material.userData.baseOpacity ??= material.opacity ?? 1;
+    material.userData.guideOpacity = clamped;
+    if (!material.transparent) {
+      material.transparent = true;
+      material.needsUpdate = true;
+    }
+    material.opacity = material.userData.baseOpacity * clamped;
+  });
+}
+
+function getObjectMaterialEntries(object) {
+  if (object.userData.materialEntries) return object.userData.materialEntries;
+  const entries = [];
+  object.traverse(child => {
     if (!child.material) return;
     const materials = Array.isArray(child.material) ? child.material : [child.material];
     materials.forEach(material => {
-      material.userData.baseOpacity ??= material.opacity ?? 1;
-      material.transparent = true;
-      material.opacity = material.userData.baseOpacity * clamped;
-      material.needsUpdate = true;
+      entries.push({ object: child, material });
     });
   });
+  object.userData.materialEntries = entries;
+  return entries;
+}
+
+function getObjectMaterials(object) {
+  if (object.userData.materials) return object.userData.materials;
+  const materials = getObjectMaterialEntries(object).map(entry => entry.material);
+  object.userData.materials = materials;
+  return materials;
 }
 
 function getSphereTarget(item, orbitItems, time, focusBlend = 0, layoutKey = 'overview-base', relayoutPulse = 0) {
@@ -3916,6 +4093,8 @@ function getTimelineGroupKey(item) {
 }
 
 function getTimelineGroups(layoutItems) {
+  const cached = timelineGroupsCache.get(layoutItems);
+  if (cached) return cached;
   const groups = new Map();
   [...layoutItems]
     .sort((a, b) => a.year - b.year || getItemNumber(a) - getItemNumber(b))
@@ -3924,28 +4103,39 @@ function getTimelineGroups(layoutItems) {
       if (!groups.has(id)) groups.set(id, { id, label: id, startYear: Number(id), items: [] });
       groups.get(id).items.push(item);
     });
-  return [...groups.values()]
+  const result = [...groups.values()]
     .sort((a, b) => a.startYear - b.startYear)
     .map((group, groupIndex) => ({
       ...group,
       groupIndex,
       progress: TIMELINE_GROUP_START + groupIndex * TIMELINE_GROUP_SPACING
     }));
+  timelineGroupsCache.set(layoutItems, result);
+  return result;
 }
 
 function getTimelineGroupMeta(item, layoutItems) {
+  let metaByItem = timelineMetaCache.get(layoutItems);
+  if (!metaByItem) {
+    metaByItem = new Map();
+    timelineMetaCache.set(layoutItems, metaByItem);
+  }
+  const cached = metaByItem.get(item.id);
+  if (cached) return cached;
   const groups = getTimelineGroups(layoutItems);
   const groupId = getTimelineGroupKey(item);
   const groupIndex = Math.max(0, groups.findIndex(group => group.id === groupId));
   const group = groups[groupIndex] || { id: groupId, label: groupId, items: [item] };
   const itemIndex = Math.max(0, group.items.findIndex(entry => entry.id === item.id));
-  return {
+  const meta = {
     ...group,
     groupIndex: group.groupIndex ?? groupIndex,
     groupItems: group.items,
     itemIndex,
     progress: group.progress ?? TIMELINE_GROUP_START + groupIndex * TIMELINE_GROUP_SPACING
   };
+  metaByItem.set(item.id, meta);
+  return meta;
 }
 
 function getTimelineGroupProgressById(groupId, layoutItems) {
@@ -4254,13 +4444,16 @@ function createMapClusterConnector() {
 }
 
 function updateMapClusterConnector(connector, locationId, clusterItems, pan, zoom, time) {
+  if (!connector.visible && connector.material.opacity === 0) return;
   connector.visible = false;
   connector.material.opacity = 0;
-  connector.material.needsUpdate = true;
 }
 
 function updateMapFeatureSelection(mapGuide, locationId, time) {
   const hasSelection = Boolean(locationId);
+  const selectionKey = locationId || 'none';
+  if (!hasSelection && mapGuide.userData.selectionKey === selectionKey) return;
+  mapGuide.userData.selectionKey = selectionKey;
   mapGuide.traverse(object => {
     if (!object.userData?.mapLocationId || !object.userData.mapBaseScale) return;
     const selected = object.userData.mapLocationId === locationId;
@@ -4274,8 +4467,9 @@ function updateMapFeatureSelection(mapGuide, locationId, time) {
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       materials.forEach(material => {
         const factor = selected ? 1.24 : hasSelection ? 0.68 : 1;
-        material.opacity = THREE.MathUtils.clamp(material.opacity * factor, 0, 1);
-        material.needsUpdate = true;
+        material.userData.baseOpacity ??= material.opacity ?? 1;
+        const guideOpacity = material.userData.guideOpacity ?? 1;
+        material.opacity = THREE.MathUtils.clamp(material.userData.baseOpacity * guideOpacity * factor, 0, 1);
       });
     });
   });
@@ -4671,8 +4865,8 @@ function makeTimelineSparkleTexture() {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   return texture;
 }
@@ -4704,16 +4898,16 @@ function makeTimelineRimGlowTexture() {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   return texture;
 }
 
 function makeTimelinePlatformGlowTexture() {
   const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 3072;
+  canvas.width = 512;
+  canvas.height = 1536;
   const ctx = canvas.getContext('2d');
   const left = 76;
   const right = canvas.width - 76;
@@ -4760,17 +4954,17 @@ function makeTimelinePlatformGlowTexture() {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 10;
+  texture.anisotropy = 2;
   return texture;
 }
 
 function makeTimelineTrackTexture() {
   const canvas = document.createElement('canvas');
-  canvas.width = 1200;
-  canvas.height = 3072;
+  canvas.width = 720;
+  canvas.height = 1536;
   const ctx = canvas.getContext('2d');
   const margin = 70;
   const trackLeft = margin;
@@ -4869,10 +5063,10 @@ function makeTimelineTrackTexture() {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 12;
+  texture.anisotropy = 2;
   return texture;
 }
 
@@ -4971,10 +5165,10 @@ function createWestLakeMapTexture() {
   const source = westLakeAssetsById['west-lake-area-map'] || westLakeAssetsById['terrain-west-lake'];
   const texture = new THREE.TextureLoader().load(source?.src || '/assets/westlake/full-west-lake-area-map.jpg');
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 12;
+  texture.anisotropy = 2;
   return texture;
 }
 
@@ -5000,8 +5194,8 @@ function getXiangdongTerrainHeight(x, y) {
 
 function makeXiangdongTerrainTexture(width, height) {
   const canvas = document.createElement('canvas');
-  canvas.width = 2400;
-  canvas.height = 1440;
+  canvas.width = 1400;
+  canvas.height = 840;
   const ctx = canvas.getContext('2d');
   const toCanvasX = x => ((x + width / 2) / width) * canvas.width;
   const toCanvasY = y => ((height / 2 - y) / height) * canvas.height;
@@ -5072,17 +5266,17 @@ function makeXiangdongTerrainTexture(width, height) {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 10;
+  texture.anisotropy = 2;
   return texture;
 }
 
 function makeXiangdongMapUnderlayTexture() {
   const canvas = document.createElement('canvas');
-  canvas.width = 2048;
-  canvas.height = 1536;
+  canvas.width = 1280;
+  canvas.height = 960;
   const ctx = canvas.getContext('2d');
 
   const base = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
@@ -5144,10 +5338,10 @@ function makeXiangdongMapUnderlayTexture() {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 8;
+  texture.anisotropy = 2;
   return texture;
 }
 
