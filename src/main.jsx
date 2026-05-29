@@ -812,10 +812,6 @@ function App() {
         />
       ) : null}
 
-      {activeLayout === 'map' && !isImmersive ? (
-        <p className="map-credit">真实地形图素材</p>
-      ) : null}
-
       <GuidePet context={guideContext} items={visibleItems} />
     </main>
   );

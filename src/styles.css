@@ -766,22 +766,6 @@ button {
   box-shadow: inset 0 0 0 1px rgba(73, 214, 200, .12);
 }
 
-.map-credit {
-  position: absolute;
-  z-index: 12;
-  left: 42px;
-  bottom: 86px;
-  margin: 0;
-  padding: 5px 8px;
-  color: rgba(231, 246, 237, .58);
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 8px;
-  background: rgba(4, 10, 9, .52);
-  backdrop-filter: blur(12px);
-  font-size: 11px;
-  pointer-events: none;
-}
-
 .focus-card {
   position: absolute;
   z-index: 13;
@@ -1512,11 +1496,6 @@ button {
     height: 42px;
     gap: 5px;
     font-size: 13px;
-  }
-
-  .map-credit {
-    left: 20px;
-    bottom: 82px;
   }
 
   .fullscreen-hud {
