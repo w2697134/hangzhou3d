@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import * as THREE from 'three';
 import './styles.css';
-import { westLakeAssets, westLakeAssetsById } from './westLakeAssets.js';
+import { westLakeAssetsById } from './westLakeAssets.js';
 
 const TAU = Math.PI * 2;
 const SPHERE_RADIUS = 390;
@@ -78,10 +78,9 @@ const types = [
 ];
 
 const typeMap = Object.fromEntries(types.map(type => [type.id, type]));
-const showcaseAssetIds = ['terrain-west-lake', 'duanqiao', 'sudi', 'santan', 'leifeng', 'shuangfeng', 'shuangfeng-scroll', 'historic-map-1916'];
 const assetImageCache = new Map();
 
-const XIANGDONG_MAP_SIZE = { width: 2400, height: 1440 };
+const XIANGDONG_MAP_SIZE = { width: 1800, height: 1990 };
 const XIANGDONG_MAP_BASE_Y = 34;
 const XIANGDONG_MAP_DEFAULT_ZOOM = 0.86;
 const XIANGDONG_MAP_MIN_ZOOM = 0.82;
@@ -451,8 +450,12 @@ function getGuideOpeningMessages(exhibit) {
 }
 
 function getExhibitDisplayName(item) {
-  if (!item) return '当前导览';
-  return item.title || `导览 ${String(getItemNumber(item)).padStart(3, '0')}`;
+  if (!item) return '当前景点';
+  return getReadableLocationName(item.location) || item.title || '当前景点';
+}
+
+function getFocusCardImageLabel(item, asset) {
+  return asset?.title || item?.title || getReadableLocationName(item?.location);
 }
 
 function getReadableTypeName(typeId) {
@@ -467,7 +470,7 @@ function getReadableLocationName(location) {
 function getDefaultSeedAssetId(seed) {
   const title = seed.title || '';
   if (title.includes('两峰插云图像')) return 'shuangfeng-scroll';
-  if (title.includes('总览') || title.includes('申遗')) return 'terrain-west-lake';
+  if (title.includes('总览') || title.includes('申遗')) return 'west-lake-area-map';
   if (title.includes('测绘') || title.includes('水院') || title.includes('白居易')) return 'historic-map-1916';
   if (title.includes('西泠') || title.includes('远眺') || title.includes('苏轼') || title.includes('白蛇传') || title.includes('湖心亭')) return 'westlake-scroll';
   return seed.locationId;
@@ -477,7 +480,7 @@ function getItemAsset(item) {
   if (!item) return null;
   return westLakeAssetsById[item.assetId]
     || westLakeAssetsById[item.location?.id]
-    || westLakeAssetsById['terrain-west-lake']
+    || westLakeAssetsById['west-lake-area-map']
     || null;
 }
 
@@ -807,10 +810,8 @@ function App() {
       ) : null}
 
       {activeLayout === 'map' && !isImmersive ? (
-        <p className="map-credit">© OpenStreetMap contributors</p>
+        <p className="map-credit">真实地形图素材</p>
       ) : null}
-
-      {!isImmersive && !isFullscreen ? <AssetLibraryPanel /> : null}
 
       <GuidePet context={guideContext} items={visibleItems} />
     </main>
@@ -1733,71 +1734,11 @@ function LayoutDock({ activeLayout, onLayoutChange, compact = false }) {
   );
 }
 
-function AssetLibraryPanel() {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const showcaseAssets = showcaseAssetIds
-    .map(id => westLakeAssetsById[id])
-    .filter(Boolean);
-  const visibleAssets = isExpanded ? westLakeAssets : showcaseAssets;
-
-  return (
-    <section
-      className={`asset-library ${isExpanded ? 'asset-library--expanded' : ''}`}
-      aria-label="西湖公开素材库"
-      onPointerDown={event => event.stopPropagation()}
-      onPointerUp={event => event.stopPropagation()}
-      onClick={event => event.stopPropagation()}
-    >
-      <div className="asset-library__head">
-        <div>
-          <span>公开素材库</span>
-          <strong>{westLakeAssets.length} 项公开素材</strong>
-        </div>
-        <button
-          type="button"
-          className="asset-library__toggle"
-          onClick={() => setIsExpanded(value => !value)}
-          aria-expanded={isExpanded}
-        >
-          {isExpanded ? '收起' : '展开'}
-        </button>
-      </div>
-      {isExpanded ? (
-        <div className="asset-library__records">
-          {westLakeAssets.map(asset => (
-            <a
-              className="asset-library__record"
-              key={asset.id}
-              href={asset.sourcePage}
-              target="_blank"
-              rel="noreferrer"
-              title={`${asset.title} · ${asset.creditShort}`}
-            >
-              <img src={asset.src} alt={asset.title} />
-              <span>
-                <strong>{asset.title}</strong>
-                <small>{asset.kind} · {asset.license}</small>
-                <em>{asset.note}</em>
-              </span>
-              <ArrowUpRight size={15} />
-            </a>
-          ))}
-        </div>
-      ) : null}
-      <div className="asset-library__strip">
-        {visibleAssets.map(asset => (
-          <a key={asset.id} href={asset.sourcePage} target="_blank" rel="noreferrer" title={`${asset.title} · ${asset.creditShort}`}>
-            <img src={asset.src} alt={asset.title} />
-          </a>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function FocusCard({ item, onPrevious, onNext, onClose }) {
   const type = typeMap[item.type];
   const asset = getItemAsset(item);
+  const placeName = getReadableLocationName(item.location);
+  const topicName = item.title === placeName ? item.material : item.title;
   return (
     <section
       className="focus-card"
@@ -1814,20 +1755,15 @@ function FocusCard({ item, onPrevious, onNext, onClose }) {
           <img className="focus-card__photo" src={asset.src} alt={asset.title} />
         ) : null}
         <span className="focus-card__shade" />
-        <span className="focus-card__index">{item.id.replace('obj-', '导览 ')}</span>
-        {asset ? (
-          <figcaption className="focus-card__asset-credit">
-            {asset.title} · {asset.creditShort}
-          </figcaption>
-        ) : null}
+        <span className="focus-card__index">{getFocusCardImageLabel(item, asset)}</span>
       </figure>
       <div className="focus-card__body">
         <div className="panel-kicker" style={{ color: type.color }}>
           <Sparkles size={16} />
           {type.label}
         </div>
-        <h2>{item.title}</h2>
-        <p className="panel-meta">{item.author} · {item.material} · {item.location.label} · {item.year}</p>
+        <h2>{placeName}</h2>
+        <p className="panel-meta">{topicName} · {item.material} · {item.year}</p>
         <p className="panel-copy">{item.description}</p>
         <div className="tag-row">
           {item.tags.map(tag => (
@@ -2985,7 +2921,7 @@ function setCardObjectOpacity(card, opacity) {
 
 function makeObjectTexture(item, selected) {
   const type = typeMap[item.type];
-  const textureScale = 2;
+  const textureScale = 3;
   const logicalWidth = 768;
   const logicalHeight = 1024;
   const canvas = document.createElement('canvas');
@@ -3005,29 +2941,29 @@ function makeObjectTexture(item, selected) {
   ctx.fill();
 
   ctx.save();
-  round(ctx, 32, 32, 704, 618, 26);
+  round(ctx, 28, 28, 712, 648, 26);
   ctx.clip();
   const asset = getItemAsset(item);
   const assetImage = getLoadedAssetImage(asset);
   if (assetImage) {
-    drawImageCover(ctx, assetImage, 32, 32, 704, 618);
-    const photoShade = ctx.createLinearGradient(32, 32, 32, 650);
+    drawImageCover(ctx, assetImage, 28, 28, 712, 648);
+    const photoShade = ctx.createLinearGradient(28, 28, 28, 676);
     photoShade.addColorStop(0, 'rgba(0,0,0,.05)');
-    photoShade.addColorStop(0.72, 'rgba(0,0,0,.18)');
-    photoShade.addColorStop(1, 'rgba(0,0,0,.5)');
+    photoShade.addColorStop(0.74, 'rgba(0,0,0,.1)');
+    photoShade.addColorStop(1, 'rgba(0,0,0,.38)');
     ctx.fillStyle = photoShade;
-    ctx.fillRect(32, 32, 704, 618);
+    ctx.fillRect(28, 28, 712, 648);
   } else {
-    drawTextureArt(ctx, item, 32, 32, 704, 618);
+    drawTextureArt(ctx, item, 28, 28, 712, 648);
   }
   ctx.restore();
 
-  const panel = ctx.createLinearGradient(0, 638, 0, 1010);
-  panel.addColorStop(0, 'rgba(5,8,13,.74)');
+  const panel = ctx.createLinearGradient(0, 672, 0, 1010);
+  panel.addColorStop(0, 'rgba(5,8,13,.64)');
   panel.addColorStop(0.34, 'rgba(4,7,12,.94)');
   panel.addColorStop(1, 'rgba(3,5,9,.98)');
   ctx.fillStyle = panel;
-  round(ctx, 30, 630, 708, 366, 26);
+  round(ctx, 30, 670, 708, 326, 26);
   ctx.fill();
 
   ctx.strokeStyle = selected ? '#ffffff' : rgba(type.color, 0.86);
@@ -3035,16 +2971,19 @@ function makeObjectTexture(item, selected) {
   round(ctx, 5, 5, 758, 1014, 38);
   ctx.stroke();
 
+  const cardTitle = getReadableLocationName(item.location);
+  const cardTopic = item.title === cardTitle ? item.material : item.title;
+
   ctx.fillStyle = 'rgba(255,255,255,.98)';
   ctx.font = '800 76px "Microsoft YaHei", Arial, sans-serif';
-  wrapText(ctx, item.title, 50, 744, 602, 82, 2);
+  wrapText(ctx, cardTitle, 50, 766, 602, 82, 2);
 
   ctx.fillStyle = 'rgba(255,255,255,.78)';
   ctx.font = '700 34px "Microsoft YaHei", Arial, sans-serif';
-  ctx.fillText(`${item.typeLabel} / ${item.dateLabel}`, 52, 914);
+  wrapText(ctx, `${cardTopic} / ${item.year}`, 52, 922, 560, 38, 1);
   ctx.fillStyle = 'rgba(255,255,255,.56)';
   ctx.font = '600 28px "Microsoft YaHei", Arial, sans-serif';
-  ctx.fillText(item.location.label, 52, 958);
+  ctx.fillText(item.material, 52, 962);
 
   ctx.fillStyle = type.color;
   ctx.beginPath();
@@ -3054,7 +2993,7 @@ function makeObjectTexture(item, selected) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapNearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.anisotropy = 16;
   return texture;
@@ -4976,16 +4915,14 @@ function createMapGuide() {
   underlay.renderOrder = -30;
   group.add(underlay);
 
-  const terrainTexture = makeXiangdongTerrainTexture(mapWidth, mapHeight);
+  const terrainTexture = createWestLakeMapTexture();
   const terrain = new THREE.Mesh(
     createXiangdongTerrainGeometry(mapWidth, mapHeight),
-    new THREE.MeshStandardMaterial({
+    new THREE.MeshBasicMaterial({
       map: terrainTexture,
       color: 0xffffff,
-      roughness: 0.9,
-      metalness: 0.02,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.98,
       side: THREE.DoubleSide,
       depthWrite: false,
       fog: false
@@ -5010,40 +4947,6 @@ function createMapGuide() {
   edge.renderOrder = -8;
   group.add(edge);
 
-  const routePoints = xiangdongRouteStops.map(stop => (
-    new THREE.Vector3(stop.x, stop.y, -101 + getXiangdongTerrainHeight(stop.x, stop.y) * 0.18)
-  ));
-  const routeCurve = new THREE.CatmullRomCurve3(routePoints, false, 'catmullrom', 0.38);
-  const routeHalo = new THREE.Mesh(
-    new THREE.TubeGeometry(routeCurve, 180, 8.5, 10, false),
-    new THREE.MeshBasicMaterial({
-      color: 0x38e4dd,
-      transparent: true,
-      opacity: 0.13,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      fog: false
-    })
-  );
-  routeHalo.name = 'xiangdong-route-halo';
-  routeHalo.renderOrder = 2;
-  group.add(routeHalo);
-
-  const routeLine = new THREE.Mesh(
-    new THREE.TubeGeometry(routeCurve, 220, 2.8, 8, false),
-    new THREE.MeshBasicMaterial({
-      color: 0x76fff1,
-      transparent: true,
-      opacity: 0.78,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      fog: false
-    })
-  );
-  routeLine.name = 'xiangdong-canal-line';
-  routeLine.renderOrder = 3;
-  group.add(routeLine);
-
   xiangdongRouteStops.forEach((stop, index) => {
     const marker = createXiangdongMapMarker(index === 0 ? 0xbdf7d1 : stop.id === 'leifeng' ? 0xf0b75c : 0x76fff1);
     marker.position.set(stop.x, stop.y, -91 + getXiangdongTerrainHeight(stop.x, stop.y) * 0.18);
@@ -5060,8 +4963,8 @@ function createMapGuide() {
     group.add(sprite);
   });
 
-  const title = createMapFeatureLabelSprite('杭州西湖', '湖山堤岛文化景观');
-  title.position.set(-350, -236, -88);
+  const title = createMapFeatureLabelSprite('杭州西湖', '真实地形图漫游');
+  title.position.set(-240, -360, -88);
   title.scale.set(150, 50, 1);
   group.add(title);
 
@@ -5080,6 +4983,17 @@ function createXiangdongTerrainGeometry(width, height) {
   positions.needsUpdate = true;
   geometry.computeVertexNormals();
   return geometry;
+}
+
+function createWestLakeMapTexture() {
+  const source = westLakeAssetsById['west-lake-area-map'] || westLakeAssetsById['terrain-west-lake'];
+  const texture = new THREE.TextureLoader().load(source?.src || '/assets/westlake/full-west-lake-area-map.jpg');
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 12;
+  return texture;
 }
 
 function getXiangdongTerrainHeight(x, y) {
@@ -5169,19 +5083,6 @@ function makeXiangdongTerrainTexture(width, height) {
 
   drawCauseway([[-48, 310], [-135, 206], [-198, 92], [-230, -42], [-240, -214]], 15, 'rgba(224, 211, 142, .36)');
   drawCauseway([[235, 338], [102, 308], [-14, 276], [-118, 238]], 13, 'rgba(224, 211, 142, .34)');
-
-  ctx.strokeStyle = 'rgba(112,255,240,.22)';
-  ctx.lineWidth = 7;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  xiangdongRouteStops.forEach((stop, index) => {
-    const x = toCanvasX(stop.x);
-    const y = toCanvasY(stop.y);
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
 
   ctx.lineWidth = 2;
   ctx.strokeStyle = 'rgba(3,8,10,.08)';

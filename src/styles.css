@@ -782,154 +782,6 @@ button {
   pointer-events: none;
 }
 
-.asset-library {
-  position: absolute;
-  z-index: 12;
-  left: 424px;
-  bottom: 24px;
-  width: min(520px, calc(100vw - 560px));
-  min-width: 300px;
-  padding: 10px 12px 12px;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 12px;
-  background: rgba(5, 12, 12, .58);
-  box-shadow: 0 22px 70px rgba(0,0,0,.24);
-  backdrop-filter: blur(18px);
-}
-
-.asset-library--expanded {
-  width: min(760px, calc(100vw - 540px));
-  background: rgba(5, 12, 12, .72);
-}
-
-.asset-library__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-  color: rgba(232, 248, 239, .76);
-  font-size: 12px;
-}
-
-.asset-library__head div {
-  display: grid;
-  gap: 2px;
-}
-
-.asset-library__head strong {
-  color: #e9f8ef;
-  font-weight: 720;
-}
-
-.asset-library__toggle {
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid rgba(73, 214, 200, .24);
-  border-radius: 8px;
-  color: #9ff7e8;
-  background: rgba(73, 214, 200, .09);
-  cursor: pointer;
-}
-
-.asset-library__toggle:hover {
-  border-color: rgba(73, 214, 200, .56);
-}
-
-.asset-library__records {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  max-height: min(330px, calc(100vh - 270px));
-  margin-bottom: 10px;
-  overflow: auto;
-  padding-right: 3px;
-}
-
-.asset-library__record {
-  display: grid;
-  grid-template-columns: 66px minmax(0, 1fr) 18px;
-  gap: 10px;
-  align-items: center;
-  min-height: 74px;
-  padding: 8px;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 8px;
-  color: rgba(231, 246, 239, .84);
-  background: rgba(255,255,255,.045);
-  text-decoration: none;
-}
-
-.asset-library__record:hover {
-  border-color: rgba(73, 214, 200, .54);
-  background: rgba(73, 214, 200, .08);
-}
-
-.asset-library__record img {
-  width: 66px;
-  height: 54px;
-  object-fit: cover;
-  border-radius: 6px;
-  background: rgba(255,255,255,.05);
-}
-
-.asset-library__record span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.asset-library__record strong,
-.asset-library__record small,
-.asset-library__record em {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.asset-library__record strong {
-  color: #f2fff6;
-  font-size: 13px;
-}
-
-.asset-library__record small {
-  color: rgba(165, 225, 203, .7);
-  font-size: 11px;
-}
-
-.asset-library__record em {
-  color: rgba(226, 237, 232, .58);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.asset-library__strip {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.asset-library__strip a {
-  position: relative;
-  display: block;
-  aspect-ratio: 1.18;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 8px;
-  background: rgba(255,255,255,.04);
-}
-
-.asset-library__strip a:hover {
-  border-color: rgba(73, 214, 200, .68);
-}
-
-.asset-library__strip img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-}
-
 .focus-card {
   position: absolute;
   z-index: 13;
@@ -1044,12 +896,17 @@ button {
   position: absolute;
   left: 16px;
   bottom: 14px;
-  padding: 6px 9px;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 999px;
-  color: rgba(255,255,255,.84);
-  background: rgba(0,0,0,.34);
-  font-size: 12px;
+  max-width: calc(100% - 32px);
+  padding: 7px 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 8px;
+  color: rgba(255,255,255,.9);
+  background: rgba(0,0,0,.38);
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .focus-card__body {
@@ -1082,19 +939,6 @@ button {
 
 .preview-mark::after {
   display: none;
-}
-
-.focus-card__asset-credit {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 14px;
-  overflow: hidden;
-  color: rgba(245, 255, 249, .78);
-  font-size: 11px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .panel-copy {
@@ -1673,10 +1517,6 @@ button {
   .map-credit {
     left: 20px;
     bottom: 82px;
-  }
-
-  .asset-library {
-    display: none;
   }
 
   .fullscreen-hud {

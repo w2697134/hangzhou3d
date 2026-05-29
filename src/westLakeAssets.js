@@ -55,11 +55,11 @@ export const westLakeAssets = [
     title: '苏堤春晓',
     kind: 'photo',
     src: fromAssetBase('/assets/westlake/sudi-spring.jpg'),
-    sourcePage: 'https://commons.wikimedia.org/wiki/File:Sudi_Spring.jpg',
+    sourcePage: 'https://commons.wikimedia.org/wiki/File:Su_Causeway_near_West_Lake,_looking_towards_north_20120529_1.jpg',
     source: 'Wikimedia Commons',
-    author: 'Honmingjun',
-    license: 'CC BY 3.0',
-    creditShort: 'Honmingjun · CC BY 3.0',
+    author: 'DXR',
+    license: 'CC BY-SA 4.0',
+    creditShort: 'DXR · CC BY-SA 4.0',
     note: '苏堤春景与长堤空间'
   },
   {
@@ -91,11 +91,11 @@ export const westLakeAssets = [
     title: '雷峰夕照',
     kind: 'photo',
     src: fromAssetBase('/assets/westlake/leifeng-evening.jpg'),
-    sourcePage: 'https://commons.wikimedia.org/wiki/File:2006%E5%B9%B4%E9%9B%B7%E5%B3%B0%E5%A4%95%E7%85%A7_-_panoramio.jpg',
+    sourcePage: 'https://commons.wikimedia.org/wiki/File:Leifeng_Pagoda_20250505.jpg',
     source: 'Wikimedia Commons',
-    author: 'wanghongliu',
-    license: 'CC BY-SA 3.0',
-    creditShort: 'wanghongliu · CC BY-SA 3.0',
+    author: 'Suicasmo',
+    license: 'CC0',
+    creditShort: 'Suicasmo · CC0',
     note: '雷峰塔与夕照景观'
   },
   {
@@ -183,16 +183,40 @@ export const westLakeAssets = [
     note: '南宋画作中的西湖空间想象'
   },
   {
+    id: 'west-lake-area-map',
+    title: '西湖景区地形图',
+    kind: 'map',
+    src: fromAssetBase('/assets/westlake/full-west-lake-area-map.jpg'),
+    sourcePage: 'https://commons.wikimedia.org/wiki/File:Full_map_of_West_Lake_Area.jpg',
+    source: 'Wikimedia Commons / OpenStreetMap contributors',
+    author: 'OpenStreetMap contributors',
+    license: 'CC BY-SA 2.5',
+    creditShort: 'OpenStreetMap contributors',
+    note: '真实公开地图素材，覆盖西湖水面、周边山体、道路和主要地名'
+  },
+  {
+    id: 'hangzhou-topographic-map',
+    title: '杭州地形测绘图',
+    kind: 'map',
+    src: fromAssetBase('/assets/westlake/hangzhou-topographic-map-1939.jpg'),
+    sourcePage: 'https://commons.wikimedia.org/wiki/File:%E3%80%8A%E6%9D%AD%E5%B7%9E%E9%99%84%E8%BF%91%E5%9C%B0%E5%BD%A2%E5%9C%96%E3%80%8B_%E6%9D%AD%E5%B7%9E%E5%B8%82(%E6%B8%85%E7%B9%AA%E5%9C%96)_%E6%B0%91%E5%9C%8B18%E5%B9%B4%E6%B8%AC%E5%9C%96%EF%BC%8C28%E5%B9%B4%E7%B8%AE%E8%A3%BD.jpg',
+    source: 'Wikimedia Commons',
+    author: '联勤总部陆地测量总局测量第一队',
+    license: 'Public domain',
+    creditShort: '民国测绘图',
+    note: '民国时期杭州附近地形测绘图，用作地图质感和地形语境参考'
+  },
+  {
     id: 'terrain-west-lake',
-    title: '西湖地形可视化图',
-    kind: 'terrain-map',
-    src: fromAssetBase('/assets/westlake/terrain-west-lake.svg'),
-    sourcePage: 'https://www.openstreetmap.org/#map=14/30.2437/120.1475',
-    source: 'OpenStreetMap contributors + project vector visualization',
-    author: 'Project visualization, derived from public geodata',
-    license: 'ODbL attribution for OSM-derived geography; project SVG code in repository',
-    creditShort: 'OSM contributors · project visualization',
-    note: '为 3D 漫游重绘的地形可视化层'
+    title: '西湖地形底图',
+    kind: 'map',
+    src: fromAssetBase('/assets/westlake/full-west-lake-area-map.jpg'),
+    sourcePage: 'https://commons.wikimedia.org/wiki/File:Full_map_of_West_Lake_Area.jpg',
+    source: 'Wikimedia Commons / OpenStreetMap contributors',
+    author: 'OpenStreetMap contributors',
+    license: 'CC BY-SA 2.5',
+    creditShort: 'OpenStreetMap contributors',
+    note: '真实公开地图素材，替代早期项目内自绘底图'
   }
 ];
 
