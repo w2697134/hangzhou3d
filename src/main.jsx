@@ -417,6 +417,9 @@ function createGuideRequestPayload(exhibit, question, layoutItems, history = [])
 
 async function requestGuideAnswer(exhibit, question, layoutItems, history = []) {
   const fallback = createGuideAnswer(exhibit, question, layoutItems);
+  const useRemoteGuide = false;
+  if (!useRemoteGuide) return fallback;
+
   const payload = createGuideRequestPayload(exhibit, question, layoutItems, history);
   if (!payload || typeof fetch !== 'function') return fallback;
 
