@@ -46,13 +46,13 @@ const TIMELINE_MOVE_DECEL_RESPONSE = 5.6;
 const POINTER_DRAG_DELAY_MS = 140;
 const POINTER_DRAG_DISTANCE = 8;
 const MAP_CLICK_MOVE_TOLERANCE = 16;
-const MAX_SCENE_PIXEL_RATIO = 1.6;
-const MAX_PACKAGE_PIXEL_RATIO = 1.5;
-const CARD_TEXTURE_BASE_SCALE = 1.25;
-const CARD_TEXTURE_SELECTED_SCALE = 1.45;
+const MAX_SCENE_PIXEL_RATIO = 2;
+const MAX_PACKAGE_PIXEL_RATIO = 2;
+const CARD_TEXTURE_BASE_SCALE = 2;
+const CARD_TEXTURE_SELECTED_SCALE = 2.2;
 const TIMELINE_HOLDER_ACTIVE_CREATE_BATCH = 1;
 const TIMELINE_HOLDER_WARMUP_BATCH = 1;
-const TIMELINE_HOLDER_WARMUP_TIMEOUT_MS = 60;
+const TIMELINE_HOLDER_WARMUP_TIMEOUT_MS = 1400;
 const PACKAGE_TRAY = {
   width: 150,
   depth: 92,
@@ -3146,10 +3146,10 @@ function makeObjectTexture(item, selected) {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 2;
+  texture.anisotropy = 12;
   return texture;
 }
 
