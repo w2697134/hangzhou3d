@@ -46,10 +46,15 @@ const TIMELINE_MOVE_DECEL_RESPONSE = 5.6;
 const POINTER_DRAG_DELAY_MS = 140;
 const POINTER_DRAG_DISTANCE = 8;
 const MAP_CLICK_MOVE_TOLERANCE = 16;
-const MAX_SCENE_PIXEL_RATIO = 2;
-const MAX_PACKAGE_PIXEL_RATIO = 2;
-const CARD_TEXTURE_BASE_SCALE = 2;
-const CARD_TEXTURE_SELECTED_SCALE = 2.2;
+const MAX_SCENE_PIXEL_RATIO = 1.6;
+const MAX_PACKAGE_PIXEL_RATIO = 1.5;
+const CARD_TEXTURE_BASE_SCALE = 1.8;
+const CARD_TEXTURE_SELECTED_SCALE = 2;
+const SCENE_CARD_INITIAL_BATCH = 4;
+const SCENE_CARD_CREATE_BATCH = 4;
+const PACKAGE_CARD_CREATE_BATCH = 2;
+const ASSET_IMAGE_MAX_CONCURRENT = 2;
+const ASSET_IMAGE_START_DELAY_MS = 140;
 const TIMELINE_HOLDER_ACTIVE_CREATE_BATCH = 1;
 const TIMELINE_HOLDER_WARMUP_BATCH = 1;
 const TIMELINE_HOLDER_WARMUP_TIMEOUT_MS = 1400;
@@ -86,6 +91,10 @@ const types = [
 
 const typeMap = Object.fromEntries(types.map(type => [type.id, type]));
 const assetImageCache = new Map();
+const assetImageQueue = [];
+let activeAssetImageLoads = 0;
+let assetImagePumpTimer = 0;
+let lastAssetImageStartAt = 0;
 const sharedTextureCache = new Map();
 const timelineGroupsCache = new WeakMap();
 const timelineMetaCache = new WeakMap();
@@ -518,37 +527,75 @@ function getLoadedAssetImage(asset) {
   return entry?.status === 'loaded' ? entry.image : null;
 }
 
-function requestAssetImage(asset, onLoad) {
+function scheduleAssetImagePump(delay = 0) {
+  if (assetImagePumpTimer) return;
+  assetImagePumpTimer = window.setTimeout(() => {
+    assetImagePumpTimer = 0;
+    pumpAssetImageQueue();
+  }, delay);
+}
+
+function pumpAssetImageQueue() {
+  if (activeAssetImageLoads >= ASSET_IMAGE_MAX_CONCURRENT || !assetImageQueue.length) return;
+  const now = performance.now();
+  const wait = Math.max(0, lastAssetImageStartAt + ASSET_IMAGE_START_DELAY_MS - now);
+  if (wait > 0) {
+    scheduleAssetImagePump(wait);
+    return;
+  }
+
+  const entry = assetImageQueue.shift();
+  if (!entry || entry.status !== 'queued') {
+    scheduleAssetImagePump(0);
+    return;
+  }
+  activeAssetImageLoads += 1;
+  lastAssetImageStartAt = now;
+  entry.status = 'loading';
+  const image = new Image();
+  entry.image = image;
+  image.onload = () => {
+    activeAssetImageLoads = Math.max(0, activeAssetImageLoads - 1);
+    entry.status = 'loaded';
+    entry.listeners.forEach(listener => listener(image));
+    entry.listeners.clear();
+    scheduleAssetImagePump(ASSET_IMAGE_START_DELAY_MS);
+  };
+  image.onerror = () => {
+    activeAssetImageLoads = Math.max(0, activeAssetImageLoads - 1);
+    entry.status = 'error';
+    entry.listeners.clear();
+    scheduleAssetImagePump(ASSET_IMAGE_START_DELAY_MS);
+  };
+  image.decoding = 'async';
+  image.fetchPriority = 'low';
+  image.src = entry.src;
+  if (activeAssetImageLoads < ASSET_IMAGE_MAX_CONCURRENT && assetImageQueue.length) {
+    scheduleAssetImagePump(ASSET_IMAGE_START_DELAY_MS);
+  }
+}
+
+function requestAssetImage(asset, onLoad, priority = false) {
   const src = getAssetPreviewSrc(asset);
   if (!src || typeof Image === 'undefined') return null;
   const cached = assetImageCache.get(src);
   if (cached?.status === 'loaded') return cached.image;
-  if (cached?.status === 'loading') {
+  if (cached?.status === 'loading' || cached?.status === 'queued') {
     if (onLoad) cached.listeners.add(onLoad);
     return null;
   }
   if (cached?.status === 'error') return null;
 
-  const image = new Image();
   const entry = {
-    status: 'loading',
+    status: 'queued',
+    src,
     image: null,
     listeners: new Set(onLoad ? [onLoad] : [])
   };
   assetImageCache.set(src, entry);
-  image.onload = () => {
-    entry.status = 'loaded';
-    entry.image = image;
-    entry.listeners.forEach(listener => listener(image));
-    entry.listeners.clear();
-  };
-  image.onerror = () => {
-    entry.status = 'error';
-    entry.listeners.clear();
-  };
-  image.decoding = 'async';
-  image.fetchPriority = 'low';
-  image.src = src;
+  if (priority) assetImageQueue.unshift(entry);
+  else assetImageQueue.push(entry);
+  scheduleAssetImagePump(0);
   return null;
 }
 
@@ -973,8 +1020,10 @@ function PackagingLab({ items, onBack }) {
 
 function PackageLabViewport({ items, expanded, settings }) {
   const mountRef = useRef(null);
+  const [packageReady, setPackageReady] = useState(false);
 
   useEffect(() => {
+    setPackageReady(false);
     const mount = mountRef.current;
     if (!mount) return undefined;
 
@@ -1021,7 +1070,18 @@ function PackageLabViewport({ items, expanded, settings }) {
     packageRoot.add(cardsGroup);
 
     const visibleStack = items.slice(0, expanded ? 4 : 6);
-    [...visibleStack].reverse().forEach((item, reversedIndex) => {
+    const pendingPackageCards = [...visibleStack].reverse().map((item, reversedIndex) => ({
+      item,
+      reversedIndex
+    }));
+    let packageCardFrame = 0;
+    let packageReadyNotified = false;
+    let packageDisposed = false;
+
+    const addPackageCards = () => {
+      if (!pendingPackageCards.length) return;
+      for (let i = 0; i < PACKAGE_CARD_CREATE_BATCH && pendingPackageCards.length; i += 1) {
+        const { item, reversedIndex } = pendingPackageCards.shift();
       const layer = visibleStack.length - 1 - reversedIndex;
       const isMain = layer === 0;
       const x = settings.slotOffset * 0.16 + layer * (settings.stackGap * 0.12 + settings.fan * 0.035 + 2.8);
@@ -1038,7 +1098,11 @@ function PackageLabViewport({ items, expanded, settings }) {
         child.renderOrder = isMain ? 980 : 880 - layer;
       });
       cardsGroup.add(card);
-    });
+      }
+      if (pendingPackageCards.length) {
+        packageCardFrame = requestAnimationFrame(addPackageCards);
+      }
+    };
 
     const resize = () => {
       const { width, height } = mount.getBoundingClientRect();
@@ -1124,14 +1188,23 @@ function PackageLabViewport({ items, expanded, settings }) {
       packageRoot.rotation.x = state.pitch;
       packageRoot.rotation.z = 0;
       renderer.render(scene, camera);
+      if (!packageReadyNotified && cardsGroup.children.length > 0 && pendingPackageCards.length === 0) {
+        packageReadyNotified = true;
+        window.setTimeout(() => {
+          if (!packageDisposed) setPackageReady(true);
+        }, 80);
+      }
       state.frame = requestAnimationFrame(animate);
     };
 
     resize();
     animate();
+    packageCardFrame = requestAnimationFrame(addPackageCards);
 
     return () => {
+      packageDisposed = true;
       cancelAnimationFrame(state.frame);
+      cancelAnimationFrame(packageCardFrame);
       mount.removeEventListener('pointerdown', onPointerDown);
       mount.removeEventListener('pointermove', onPointerMove);
       mount.removeEventListener('pointerup', onPointerUp);
@@ -1150,6 +1223,10 @@ function PackageLabViewport({ items, expanded, settings }) {
         <small>drag to inspect holder depth</small>
       </div>
       <section className="package-viewport" ref={mountRef} aria-label="3D card holder preview" />
+      <div className={`package-loader ${packageReady ? 'is-hidden' : ''}`} aria-hidden={packageReady}>
+        <span className="scene-loader__ring" />
+        <span className="scene-loader__text">加载预览空间</span>
+      </div>
     </>
   );
 }
@@ -2073,6 +2150,7 @@ function SpaceScene({
   onMapLocationClear
 }) {
   const mountRef = useRef(null);
+  const [sceneReady, setSceneReady] = useState(false);
   const latest = useRef({
     items,
     selectedId,
@@ -2119,6 +2197,7 @@ function SpaceScene({
   ]);
 
   useEffect(() => {
+    setSceneReady(false);
     const mount = mountRef.current;
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x02050a, 0.00105);
@@ -2216,8 +2295,9 @@ function SpaceScene({
         }
       });
 
-      latest.current.items.forEach(item => {
-        if (cards.has(item.id)) return;
+      const missingItems = latest.current.items.filter(item => !cards.has(item.id));
+      const createLimit = cards.size === 0 ? SCENE_CARD_INITIAL_BATCH : SCENE_CARD_CREATE_BATCH;
+      missingItems.slice(0, createLimit).forEach(item => {
         const mesh = createCardObject(item, item.id === latest.current.selectedId);
         const initialLayout = state.layoutTransition ? state.layoutTransition.from : latest.current.activeLayout;
         mesh.position.copy(getLayoutTarget(
@@ -2394,12 +2474,15 @@ function SpaceScene({
       });
     }
 
+    let sceneReadyNotified = false;
+
     function animate() {
       const delta = Math.min(0.05, state.clock.getDelta());
       const selected = latest.current.selectedId;
       const active = latest.current.activeLayout;
       const hasFocus = Boolean(selected);
       const maxTimelineFlow = getTimelineMaxFlowForItems(latest.current.items);
+      if (active === 'map') mapGuide.userData.loadDetailedMap?.();
 
       if (state.lastLayout !== active) {
         const previousLayout = state.lastLayout;
@@ -2720,6 +2803,12 @@ function SpaceScene({
 
       if (latest.current.touring && !state.dragging) particleField.rotation.y += 0.00035;
       renderer.render(scene, camera);
+      if (!sceneReadyNotified && cards.size >= Math.min(latest.current.items.length, SCENE_CARD_INITIAL_BATCH)) {
+        sceneReadyNotified = true;
+        window.setTimeout(() => {
+          if (!state.disposed) setSceneReady(true);
+        }, 80);
+      }
       if (state.layoutTransitionDone) {
         state.layoutTransition = null;
         state.layoutTransitionDone = false;
@@ -2955,7 +3044,15 @@ function SpaceScene({
     };
   }, []);
 
-  return <section className="space-canvas" ref={mountRef} aria-label="3D 西湖漫游" />;
+  return (
+    <>
+      <section className="space-canvas" ref={mountRef} aria-label="3D 西湖漫游" />
+      <div className={`scene-loader ${sceneReady ? 'is-hidden' : ''}`} aria-hidden={sceneReady}>
+        <span className="scene-loader__ring" />
+        <span className="scene-loader__text">加载西湖漫游</span>
+      </div>
+    </>
+  );
 }
 
 function createCardObject(item, selected) {
@@ -5091,21 +5188,38 @@ function createMapGuide() {
   underlay.renderOrder = -30;
   group.add(underlay);
 
-  const terrainTexture = createWestLakeMapTexture();
+  const terrainTexture = makeXiangdongTerrainTexture(mapWidth, mapHeight);
+  const terrainMaterial = new THREE.MeshBasicMaterial({
+    map: terrainTexture,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.98,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    fog: false
+  });
   const terrain = new THREE.Mesh(
     createXiangdongTerrainGeometry(mapWidth, mapHeight),
-    new THREE.MeshBasicMaterial({
-      map: terrainTexture,
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.98,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      fog: false
-    })
+    terrainMaterial
   );
   terrain.name = 'xiangdong-terrain-board';
   terrain.renderOrder = -5;
+  group.userData.loadDetailedMap = () => {
+    if (terrain.userData.detailMapRequested) return;
+    terrain.userData.detailMapRequested = true;
+    const source = westLakeAssetsById['west-lake-area-map'] || westLakeAssetsById['terrain-west-lake'];
+    new THREE.TextureLoader().load(source?.src || '/assets/westlake/full-west-lake-area-map.jpg', texture => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.anisotropy = 2;
+      const oldMap = terrainMaterial.map;
+      terrainMaterial.map = texture;
+      terrainMaterial.needsUpdate = true;
+      oldMap?.dispose?.();
+    });
+  };
   group.add(terrain);
 
   const edge = new THREE.Mesh(
@@ -5159,17 +5273,6 @@ function createXiangdongTerrainGeometry(width, height) {
   positions.needsUpdate = true;
   geometry.computeVertexNormals();
   return geometry;
-}
-
-function createWestLakeMapTexture() {
-  const source = westLakeAssetsById['west-lake-area-map'] || westLakeAssetsById['terrain-west-lake'];
-  const texture = new THREE.TextureLoader().load(source?.src || '/assets/westlake/full-west-lake-area-map.jpg');
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 2;
-  return texture;
 }
 
 function getXiangdongTerrainHeight(x, y) {
